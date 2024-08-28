@@ -152,6 +152,18 @@ class S3Facade:
                 f"Failed to create metadata link from {source_object_name} to {target_object_name} in bucket {bucket_name}: {str(e)}")
             raise
 
+    def object_exists(self, bucket_name, object_name):
+        """Check if an object with the given name exists in the S3 bucket."""
+        try:
+            self.s3_client.head_object(Bucket=bucket_name, Key=object_name)
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                return False
+            else:
+                raise
+
+
     def resolve_link(self, bucket_name, target_object_name):
         """Resolve a metadata-based link to get the original object's key."""
         try:

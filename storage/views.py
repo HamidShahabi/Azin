@@ -1,3 +1,5 @@
+import mimetypes
+
 from django.views.generic import ListView, CreateView, DeleteView, View
 from django.shortcuts import render, redirect
 from django.urls import reverse_lazy
@@ -44,14 +46,25 @@ class FileUploadView(View):
 
 @method_decorator(login_required, name='dispatch')
 class FileDownloadView(View):
-    def get(self, request, file_hash, *args, **kwargs):
+    def get(self, request, file_name, *args, **kwargs):
         try:
             bucket_name = request.user.username
-            file_name = storage_facade.download_file(file_hash, bucket_name)
-            file_path = os.path.join('/tmp', file_name)
-            with open(file_path, 'rb') as file:
-                response = HttpResponse(file.read(), content_type='application/octet-stream')
-                response['Content-Disposition'] = f'attachment; filename="{file_name}"'
+            # Download the file using the updated storage utility method
+            temp_file_path, original_file_name = storage_facade.download_file(file_name, bucket_name)
+
+            # Determine the correct MIME type (optional, but helpful)
+            mime_type, _ = mimetypes.guess_type(original_file_name)
+            mime_type = mime_type or 'application/octet-stream'
+
+            # Open the temporary file and serve it as an HTTP response
+            with open(temp_file_path, 'rb') as file:
+                response = HttpResponse(file.read(), content_type=mime_type)
+                response['Content-Disposition'] = f'attachment; filename="{original_file_name}"'
+                response['Content-Length'] = os.path.getsize(temp_file_path)
+
+            # Clean up the temporary file after serving it
+            os.remove(temp_file_path)
+
             return response
         except Exception as e:
             return HttpResponseNotFound(f"File not found: {str(e)}")
@@ -63,10 +76,10 @@ class FileDeleteView(DeleteView):
     success_url = reverse_lazy('list_files')
 
     def get(self, request, *args, **kwargs):
-        return render(request, self.template_name, {'file_hash': self.kwargs['file_hash']})
+        return render(request, self.template_name, {'file_name': self.kwargs['file_name']})
 
     def post(self, request, *args, **kwargs):
-        file_hash = self.kwargs['file_hash']
+        file_hash = self.kwargs['file_name']
         bucket_name = request.user.username
         storage_facade.delete_file(file_hash, bucket_name)
         return redirect(self.success_url)
