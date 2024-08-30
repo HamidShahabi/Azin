@@ -178,7 +178,7 @@ class S3Facade:
                 return original_key
             else:
                 error_logger.error(f"No link metadata found for {target_object_name} in bucket {bucket_name}")
-                raise Exception(f"No link metadata found for '{target_object_name}' in bucket '{bucket_name}'")
+                return None
         except ClientError as e:
             error_code = e.response['Error']['Code']
             error_message = S3Facade.get_error_message(error_code)
@@ -196,7 +196,10 @@ class S3Facade:
         """Upload an object body to S3."""
         try:
             bucket_name = bucket_name or self.s3_client.bucket_name
-            self.s3_client.put_object(Bucket=bucket_name, Key=object_name, Body=body)
+            parts = object_name.split('/')
+            bucket_name = parts[0]  # The first part is the bucket name
+            file_name = parts[-1]  # The last part is the file name (object name)
+            self.s3_client.put_object(Bucket=bucket_name, Key=file_name, Body=body)
             audit_logger.info(f"Uploaded object body to {bucket_name}/{object_name}")
             return f"{bucket_name}/{object_name}"
         except ClientError as e:
@@ -213,7 +216,10 @@ class S3Facade:
         """Get the body/content of an S3 object."""
         try:
             bucket_name = bucket_name or self.s3_client.bucket_name
-            response = self.s3_client.get_object(Bucket=bucket_name, Key=object_name)
+            parts = object_name.split('/')
+            bucket_name = parts[0]  # The first part is the bucket name
+            file_name = parts[-1]  # The last part is the file name (object name)
+            response = self.s3_client.get_object(Bucket=bucket_name, Key=file_name)
             body = response['Body'].read()
             audit_logger.info(f"Retrieved object body from {bucket_name}/{object_name}")
             return body
