@@ -6,10 +6,13 @@ from .storage_utils import StorageFacade
 from django.contrib.auth.models import User
 
 class ChatConsumer(AsyncWebsocketConsumer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(args, kwargs)
+        self.storage_facade = StorageFacade()
+
     async def connect(self):
         self.room_name = self.scope['url_route']['kwargs']['room_name']
         self.room_group_name = f'chat_{self.room_name}'
-        self.storage_facade = StorageFacade()
 
         # Join room group
         await self.channel_layer.group_add(
@@ -28,6 +31,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     # Receive message from WebSocket
     async def receive(self, text_data):
+        print("Received data:", text_data)  # Debugging output
+        data = json.loads(text_data)
+        print("Parsed data:", data)
         data = json.loads(text_data)
         message = data.get('message')
         file_data = data.get('file')

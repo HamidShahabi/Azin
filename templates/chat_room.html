@@ -35,10 +35,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const roomName = "{{ room_name }}";
     let socket = null;
 
+    // Initialize WebSocket connection
     socket = new WebSocket(
         `ws://${window.location.hostname}:8080/ws/chat/${roomName}/`
     );
 
+    // Handle incoming messages
     socket.onmessage = function (e) {
         const data = JSON.parse(e.data);
         const message = data['message'];
@@ -60,13 +62,17 @@ document.addEventListener('DOMContentLoaded', function () {
         chatMessages.scrollTop = chatMessages.scrollHeight;
     };
 
+    // Handle WebSocket closure
     socket.onclose = function (e) {
         console.error('Chat socket closed unexpectedly');
     };
 
-     sendMessageButton.addEventListener('click', function () {
+    // Handle sending messages and files
+    sendMessageButton.addEventListener('click', function () {
         const message = messageInput.value;
+
         if (message && socket.readyState === WebSocket.OPEN) {
+            // Send text message
             socket.send(JSON.stringify({
                 'message': message
             }));
@@ -74,16 +80,22 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (fileInput.files.length > 0) {
             const file = fileInput.files[0];
             const reader = new FileReader();
+
+            // Handle file upload
             reader.onload = function (e) {
                 const fileContent = e.target.result.split(',')[1]; // Base64 content
+
+                // Send file data via WebSocket
                 socket.send(JSON.stringify({
                     'file': {
                         'name': file.name,
                         'content': fileContent
                     }
                 }));
-                fileInput.value = ''; // Clear the input after sending
+                fileInput.value = ''; // Clear the file input after sending
             };
+
+            // Read the file as a data URL to get base64-encoded content
             reader.readAsDataURL(file);
         }
     });
