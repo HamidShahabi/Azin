@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Your Chat Rooms{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2>Your Chat Rooms</h2>
+    <ul class="list-group">
+        {% for room in rooms %}
+            <li class="list-group-item">
+                <a href="{% url 'chat_room' room.name %}">{{ room.name }}</a>
+            </li>
+        {% endfor %}
+    </ul>
+    <a href="{% url 'create_chat_room' %}" class="btn btn-primary mt-3">Create New Chat Room</a>
+</div>
+{% endblock %}

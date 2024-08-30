@@ -1,11 +1,14 @@
 import mimetypes
 
+from django.contrib.auth.models import User
 from django.views.generic import ListView, CreateView, DeleteView, View
 from django.shortcuts import render, redirect
 from django.urls import reverse_lazy
-from django.http import HttpResponse, HttpResponseNotFound
+from django.http import HttpResponse, HttpResponseNotFound, FileResponse
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
+
+from storage.models import ChatRoom, Message
 from storage.storage_utils import StorageFacade
 import os
 
@@ -96,3 +99,51 @@ class FileDeleteView(DeleteView):
         bucket_name = request.user.username
         storage_facade.delete_file(file_hash, bucket_name)
         return redirect(self.success_url)
+
+
+@login_required
+def create_chat_room(request):
+    if request.method == "POST":
+        room_name = request.POST['room_name']
+        user_ids = request.POST.getlist('members')
+        new_room = ChatRoom.objects.create(name=room_name)
+        new_room.members.add(request.user)
+        new_room.members.add(*user_ids)
+        return redirect('chat_room', room_name=new_room.name)
+
+    users = User.objects.exclude(id=request.user.id)
+    return render(request, 'create_chat_room.html', {'users': users})
+
+
+@login_required
+def list_chat_rooms(request):
+    rooms = ChatRoom.objects.filter(members=request.user)
+    return render(request, 'list_chat_rooms.html', {'rooms': rooms})
+
+
+@login_required
+def chat_room(request, room_name):
+    room = ChatRoom.objects.get(name=room_name)
+    if request.user not in room.members.all():
+        return redirect('list_chat_rooms')
+
+    messages = Message.objects.filter(room=room).order_by('timestamp')
+
+    return render(request, 'chat_room.html', {
+        'room_name': room_name,
+        'messages': messages,
+    })
+
+
+def download_chat_file(request, bucket_name, file_name):
+    try:
+        # Download the file from object storage
+        temp_file_path, _ = storage_facade.download_file(file_name, bucket_name)
+
+        # Open the file and serve it as a response
+        file_handle = open(temp_file_path, 'rb')
+        response = FileResponse(file_handle, content_type='application/octet-stream')
+        response['Content-Disposition'] = f'attachment; filename="{file_name}"'
+        return response
+    except Exception as e:
+        return HttpResponseNotFound(f"File not found: {str(e)}")

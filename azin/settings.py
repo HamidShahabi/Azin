@@ -96,9 +96,9 @@ ASGI_APPLICATION = 'azin.asgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': 'django',
+        'NAME': 'hibernateDemoDB',
         'USER': 'postgres',
-        'PASSWORD': 'postgres',
+        'PASSWORD': 'hamidreza80',
         'HOST': 'localhost',
         'PORT': '5432',
     }
@@ -136,8 +136,13 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = 'static/'
-STATIC_ROOT = 'static/'
+# settings.py
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+    # Add other static directories if needed
+]
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

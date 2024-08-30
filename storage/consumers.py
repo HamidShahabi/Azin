@@ -1,22 +1,22 @@
 import json
+import os
 from channels.generic.websocket import AsyncWebsocketConsumer
-
+from asgiref.sync import sync_to_async
+from .storage_utils import StorageFacade
+from django.contrib.auth.models import User
 
 class ChatConsumer(AsyncWebsocketConsumer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(args, kwargs)
-        self.room_group_name = None
-        self.room_name = None
-
     async def connect(self):
         self.room_name = self.scope['url_route']['kwargs']['room_name']
         self.room_group_name = f'chat_{self.room_name}'
+        self.storage_facade = StorageFacade()
 
         # Join room group
         await self.channel_layer.group_add(
             self.room_group_name,
             self.channel_name
         )
+
         await self.accept()
 
     async def disconnect(self, close_code):
@@ -27,24 +27,64 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     # Receive message from WebSocket
-    async def receive(self, text_data=None, bytes_data=None):
-        text_data_json = json.loads(text_data)
-        message = text_data_json['message']
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        message = data.get('message')
+        file_data = data.get('file')
+        user = self.scope['user']
+        room_name = self.room_name
 
-        # Send message to room group
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                'type': 'chat_message',
-                'message': message
-            }
-        )
+        if file_data:
+            # Handle file upload
+            file_name = file_data['name']
+            file_content = file_data['content']
+            file_path = os.path.join('/tmp', file_name)  # Temporarily save the file
 
-    # Receive message from room group
+            with open(file_path, 'wb') as f:
+                f.write(file_content.encode('utf-8'))
+
+            # Upload the file using storage_utils
+            s3_object_name, _ = await sync_to_async(self.storage_facade.upload_file)(file_path, user.username)
+
+            # Generate the download link
+            file_link = f'/download/{user.username}/{file_name}'
+
+            # Send the file link to the room group
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat_message',
+                    'message': f'{user.username} shared a file: <a href="{file_link}">{file_name}</a>',
+                    'username': user.username,
+                    'timestamp': self.get_current_timestamp()
+                }
+            )
+
+        elif message:
+            # Handle text message
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat_message',
+                    'message': message,
+                    'username': user.username,
+                    'timestamp': self.get_current_timestamp()
+                }
+            )
+
     async def chat_message(self, event):
         message = event['message']
+        username = event['username']
+        timestamp = event['timestamp']
+
+        # Format the message as "username: message (timestamp)"
+        formatted_message = f'{username}: {message} ({timestamp})'
 
         # Send message to WebSocket
         await self.send(text_data=json.dumps({
-            'message': message
+            'message': formatted_message
         }))
+
+    def get_current_timestamp(self):
+        from datetime import datetime
+        return datetime.now().strftime('%H:%M')
