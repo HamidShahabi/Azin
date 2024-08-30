@@ -62,18 +62,27 @@ class StorageFacade:
                 if self.s3_facade.object_exists(bucket_name, link_object_name):
                     link_object_name = self.generate_unique_name(link_object_name)
 
+                # Create the link and define the metadata with the original object's reference
                 s3_object_name = self.s3_facade.create_link(bucket_name, existing_s3_object_name, link_object_name)
-                # Index the file metadata in Elasticsearch, including the file name
+
+                # Define the metadata specifically for the link scenario
+                link_metadata = {
+                    "original-key": existing_s3_object_name,
+                    "linked-file-hash": file_hash  # Optional, can store additional info if needed
+                }
+
+                # Index the file metadata in Elasticsearch, including the file name and link metadata
                 document = {
-                    "file_name": object_name,
+                    "file_name": link_object_name,
                     "file_hash": file_hash,
                     "s3_object_name": s3_object_name,
-                    "metadata": metadata or {}
+                    "metadata": link_metadata
                 }
                 self.es_facade.index_document(self.index_name, document)
+
                 audit_logger.info(
                     f"File '{file_path}' already exists in S3 as '{existing_s3_object_name}'. "
-                    f"Link created as '{link_object_name}'.")
+                    f"Link created as '{link_object_name}' with metadata linking to the original object.")
 
                 return existing_s3_object_name, link_object_name
 
@@ -81,12 +90,17 @@ class StorageFacade:
             object_name = object_name or file_path.rsplit('/', 1)[-1]
             s3_object_name = self.s3_facade.upload_file(bucket_name, file_path, object_name)
 
+            # Define metadata for a new upload (you can add more fields here as necessary)
+            upload_metadata = {
+                "original-key": None  # No original key since this is the first upload
+            }
+
             # Index the file metadata in Elasticsearch, including the file name
             document = {
                 "file_name": object_name,
                 "file_hash": file_hash,
                 "s3_object_name": s3_object_name,
-                "metadata": metadata or {}
+                "metadata": upload_metadata
             }
             self.es_facade.index_document(self.index_name, document)
 
@@ -163,13 +177,13 @@ class StorageFacade:
             # Download the file to a temporary location
             with NamedTemporaryFile(delete=False) as temp_file:
                 temp_file_path = temp_file.name
-                self.s3_facade.download_file(bucket_name, s3_object_name, temp_file_path)
+                self.s3_facade.download_file(bucket_name, file_name, temp_file_path)
 
             # Calculate the file's hash
             file_hash = self.calculate_file_hash(temp_file_path)
 
             # Check if there are any links to this file
-            link_query = {"query": {"term": {"metadata.original-key": s3_object_name}}}
+            link_query = {"query": {"term": {"metadata.original-key.keyword": s3_object_name}}}
             link_results = self.es_facade.search(self.index_name, link_query)
 
             if link_results['hits']['total']['value'] > 0:
@@ -182,7 +196,7 @@ class StorageFacade:
                         f"Copied content from '{s3_object_name}' to linked object '{linked_s3_object_name}'.")
 
             # Delete the original file from S3
-            self.s3_facade.delete_file(bucket_name, s3_object_name)
+            self.s3_facade.delete_file(bucket_name, file_name)
 
             # Remove the document from Elasticsearch
             doc_id = result['hits']['hits'][0]['_id']
