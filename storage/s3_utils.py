@@ -195,7 +195,6 @@ class S3Facade:
     def upload_object_body(self, object_name, body, bucket_name=None):
         """Upload an object body to S3."""
         try:
-            bucket_name = bucket_name or self.s3_client.bucket_name
             parts = object_name.split('/')
             bucket_name = parts[0]  # The first part is the bucket name
             file_name = parts[-1]  # The last part is the file name (object name)
@@ -215,7 +214,6 @@ class S3Facade:
     def get_object_body(self, object_name, bucket_name=None):
         """Get the body/content of an S3 object."""
         try:
-            bucket_name = bucket_name or self.s3_client.bucket_name
             parts = object_name.split('/')
             bucket_name = parts[0]  # The first part is the bucket name
             file_name = parts[-1]  # The last part is the file name (object name)

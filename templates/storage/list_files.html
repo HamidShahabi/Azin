@@ -8,16 +8,18 @@
         <thead>
         <tr>
             <th>File Name</th>
+            <th>Size</th>
             <th>Actions</th>
         </tr>
         </thead>
         <tbody>
         {% for file in files %}
             <tr>
-                <td>{{ file }}</td>
+                <td>{{ file.file_name }}</td>
+                <td>{{ file.file_size|filesizeformat }}</td>
                 <td>
-                    <a href="{% url 'download_file' file %}" class="btn btn-primary">Download</a>
-                    <a href="{% url 'delete_file' file %}" class="btn btn-danger">Delete</a>
+                    <a href="{% url 'download_file' file.s3_object_name %}" class="btn btn-primary">Download</a>
+                    <a href="{% url 'delete_file' file.s3_object_name %}" class="btn btn-danger">Delete</a>
                 </td>
             </tr>
         {% endfor %}

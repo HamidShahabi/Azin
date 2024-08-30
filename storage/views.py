@@ -49,10 +49,23 @@ class FileDownloadView(View):
     def get(self, request, file_name, *args, **kwargs):
         try:
             bucket_name = request.user.username
-            # Download the file using the updated storage utility method
-            temp_file_path, original_file_name = storage_facade.download_file(file_name, bucket_name)
+            # Construct the s3_object_name in the pattern bucket_name/file_name
+            s3_object_name = f"{bucket_name}/{file_name}"
 
-            # Determine the correct MIME type (optional, but helpful)
+            # Search for the file in Elasticsearch using the s3_object_name
+            query = {"query": {"term": {"s3_object_name": s3_object_name}}}
+            result = storage_facade.es_facade.search(storage_facade.index_name, query)
+
+            if result['hits']['total']['value'] == 0:
+                raise Exception(f"No file found with name '{file_name}'")
+
+            # Get the original file name from the metadata
+            original_file_name = result['hits']['hits'][0]['_source']['metadata'].get('original-file-name', file_name)
+
+            # Download the file from S3
+            temp_file_path, _ = storage_facade.download_file(file_name, bucket_name)
+
+            # Determine the correct MIME type
             mime_type, _ = mimetypes.guess_type(original_file_name)
             mime_type = mime_type or 'application/octet-stream'
 
