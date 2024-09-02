@@ -52,8 +52,10 @@ class StorageFacade:
 
             if existing_files['hits']['total']['value'] > 0:
                 # File with the same hash already exists, create a link
-                existing_file = existing_files['hits']['hits'][0]['_source']
-                existing_s3_object_name = existing_file['s3_object_name']
+                for file in existing_files['hits']['hits']:
+                    if file['_source']['metadata'].get('original-key') is None:
+                        existing_s3_object_name = file['_source']['s3_object_name']
+                        break
 
                 # Create a symbolic link in S3
                 link_object_name = object_name or f"{file_path.rsplit('/', 1)[-1]}"
@@ -84,7 +86,7 @@ class StorageFacade:
                     f"File '{file_path}' already exists in S3 as '{existing_s3_object_name}'. "
                     f"Link created as '{link_object_name}' with metadata linking to the original object.")
 
-                return existing_s3_object_name, link_object_name
+                return link_object_name
 
             # If no duplicates, upload the file
             object_name = object_name or file_path.rsplit('/', 1)[-1]
@@ -112,7 +114,7 @@ class StorageFacade:
 
             audit_logger.info(f"File '{file_path}' uploaded to S3 as '{s3_object_name}' and indexed in Elasticsearch.")
 
-            return s3_object_name, None
+            return object_name
         except Exception as e:
             error_logger.error(f"Failed to upload file '{file_path}': {str(e)}")
             raise
@@ -142,7 +144,7 @@ class StorageFacade:
                 self.s3_facade.download_file(bucket_name, file_name, temp_file_path)
 
             # Check if the file is a symbolic link
-            original_key = self.s3_facade.resolve_link(bucket_name, file_name)
+            original_key = self.es_facade.resolve_link(bucket_name, file_name, self.index_name)
             if original_key:
                 audit_logger.info(f"File '{file_name}' is a link. Resolving to original object '{original_key}'.")
 
@@ -236,6 +238,7 @@ class StorageFacade:
             for link in link_hits[1:]:
                 linked_s3_object_name = link['_source']['s3_object_name']
                 link_doc_id = link['_id']
+                self.s3_facade.upload_object_body(linked_s3_object_name, None, {'original-key': new_original_s3_object_name})
 
                 # Update the original-key in metadata to point to the new original file
                 self.update_metadata_field(self.index_name, link_doc_id, 'original-key', new_original_s3_object_name)
@@ -264,6 +267,7 @@ class StorageFacade:
             error_logger.error(
                 f"Failed to promote single link to original for '{single_link_s3_object_name}': {str(e)}")
             raise
+
     def clear_original_key_metadata(self, doc_id):
         """Clear the original-key metadata from a document."""
         update_body = {"metadata": {"original-key": None}}

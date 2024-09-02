@@ -2,13 +2,13 @@ import json
 import os
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
-from .storage_utils import StorageFacade
+from .models import ChatRoom, Message
 from django.contrib.auth.models import User
+from .storage_utils import StorageFacade
+
 
 class ChatConsumer(AsyncWebsocketConsumer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(args, kwargs)
-        self.storage_facade = StorageFacade()
+    storage_facade = StorageFacade()
 
     async def connect(self):
         self.room_name = self.scope['url_route']['kwargs']['room_name']
@@ -30,66 +30,76 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     # Receive message from WebSocket
-    async def receive(self, text_data):
-        print("Received data:", text_data)  # Debugging output
-        data = json.loads(text_data)
-        print("Parsed data:", data)
-        data = json.loads(text_data)
-        message = data.get('message')
-        file_data = data.get('file')
+    async def receive(self, text_data=None, bytes_data=None):
         user = self.scope['user']
-        room_name = self.room_name
 
-        if file_data:
-            # Handle file upload
-            file_name = file_data['name']
-            file_content = file_data['content']
-            file_path = os.path.join('/tmp', file_name)  # Temporarily save the file
+        if text_data:
+            text_data_json = json.loads(text_data)
+            if 'message' in text_data_json:
+                message = text_data_json['message']
+
+                if message:
+                    # Save the message in the database
+                    await self.save_message(self.room_name, user, message)
+
+                    # Send message to room group
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            'type': 'chat_message',
+                            'message': message,
+                            'username': user.username,
+                            'timestamp': self.get_current_timestamp()
+                        }
+                    )
+            elif 'file_name' in text_data_json:
+                self.file_name = text_data_json['file_name']  # Store the file name for use with binary data
+
+        elif bytes_data and self.file_name:
+            # Handle binary file data
+            file_path = os.path.join('/tmp', self.file_name)  # Temporarily save the file
 
             with open(file_path, 'wb') as f:
-                f.write(file_content.encode('utf-8'))
+                f.write(bytes_data)
 
             # Upload the file using storage_utils
-            s3_object_name, _ = await sync_to_async(self.storage_facade.upload_file)(file_path, user.username)
+            s3_object_name = await sync_to_async(self.storage_facade.upload_file)(file_path, user.username)
+            # Remove the file after uploading it to storage
+            os.remove(file_path)
 
             # Generate the download link
-            file_link = f'/download/{user.username}/{file_name}'
+            file_link = f'/download/{user.username}/{s3_object_name}'
+
+            # Save the file message to the database
+            await self.save_message(self.room_name, user,
+                                    f'shared a file: <a href="{file_link}">{self.file_name}</a>')
 
             # Send the file link to the room group
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     'type': 'chat_message',
-                    'message': f'{user.username} shared a file: <a href="{file_link}">{file_name}</a>',
+                    'message': f'shared a file: <a href="{file_link}">{self.file_name}</a>',
                     'username': user.username,
                     'timestamp': self.get_current_timestamp()
                 }
             )
-
-        elif message:
-            # Handle text message
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    'type': 'chat_message',
-                    'message': message,
-                    'username': user.username,
-                    'timestamp': self.get_current_timestamp()
-                }
-            )
+            self.file_name = None  # Reset file name after handling the file
 
     async def chat_message(self, event):
         message = event['message']
         username = event['username']
         timestamp = event['timestamp']
 
-        # Format the message as "username: message (timestamp)"
-        formatted_message = f'{username}: {message} ({timestamp})'
-
         # Send message to WebSocket
         await self.send(text_data=json.dumps({
-            'message': formatted_message
+            'message': f'{username}: {message} ({timestamp})'
         }))
+
+    @sync_to_async
+    def save_message(self, room_name, user, message):
+        room = ChatRoom.objects.get(name=room_name)
+        Message.objects.create(room=room, sender=user, content=message)
 
     def get_current_timestamp(self):
         from datetime import datetime

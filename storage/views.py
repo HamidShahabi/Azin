@@ -1,8 +1,9 @@
 import mimetypes
+import time
 
 from django.contrib.auth.models import User
 from django.views.generic import ListView, CreateView, DeleteView, View
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.http import HttpResponse, HttpResponseNotFound, FileResponse
 from django.contrib.auth.decorators import login_required
@@ -40,7 +41,7 @@ class FileUploadView(View):
         storage_facade.upload_file(file_path, bucket_name)
 
         os.remove(file_path)  # Clean up the temporary file
-
+        storage_facade.es_facade.refresh_index(storage_facade.index_name)
         return redirect('list_files')
 
     def get(self, request, *args, **kwargs):
@@ -123,27 +124,36 @@ def list_chat_rooms(request):
 
 @login_required
 def chat_room(request, room_name):
-    room = ChatRoom.objects.get(name=room_name)
-    if request.user not in room.members.all():
-        return redirect('list_chat_rooms')
-
+    room = get_object_or_404(ChatRoom, name=room_name)
     messages = Message.objects.filter(room=room).order_by('timestamp')
-
     return render(request, 'chat_room.html', {
         'room_name': room_name,
-        'messages': messages,
+        'messages': messages
     })
 
 
 def download_chat_file(request, bucket_name, file_name):
     try:
+        # Construct the s3_object_name in the pattern bucket_name/file_name
+        s3_object_name = f"{bucket_name}/{file_name}"
+
+        # Search for the file in Elasticsearch using the s3_object_name
+        query = {"query": {"term": {"s3_object_name": s3_object_name}}}
+        result = storage_facade.es_facade.search(storage_facade.index_name, query)
+
+        if result['hits']['total']['value'] == 0:
+            raise Exception(f"No file found with name '{file_name}'")
+
+        # Get the original file name from the metadata
+        original_file_name = result['hits']['hits'][0]['_source']['metadata'].get('original-file-name', file_name)
         # Download the file from object storage
         temp_file_path, _ = storage_facade.download_file(file_name, bucket_name)
 
         # Open the file and serve it as a response
         file_handle = open(temp_file_path, 'rb')
         response = FileResponse(file_handle, content_type='application/octet-stream')
-        response['Content-Disposition'] = f'attachment; filename="{file_name}"'
+        response['Content-Disposition'] = f'attachment; filename="{original_file_name}"'
+        os.remove(temp_file_path)
         return response
     except Exception as e:
         return HttpResponseNotFound(f"File not found: {str(e)}")

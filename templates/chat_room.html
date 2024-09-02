@@ -5,17 +5,10 @@
 {% block content %}
 <div class="container mt-5">
     <h2>{{ room_name }}</h2>
-    <div id="chat-messages" class="chat-messages">
+    <div id="chat-messages">
         {% for message in messages %}
             <div class="message">
-                <strong>{{ message.sender.username }}:</strong>
-                {% if message.content %}
-                    {{ message.content }}
-                {% endif %}
-                {% if message.file_upload %}
-                    <a href="{{ message.file_upload.file.url }}">{{ message.file_upload.file.name }}</a>
-                {% endif %}
-                <em>({{ message.timestamp|date:"H:i" }})</em>
+                <strong>{{ message.sender.username }}</strong>: {{ message.content|safe }} <em>({{ message.timestamp|date:"H:i" }})</em>
             </div>
         {% endfor %}
     </div>
@@ -66,11 +59,22 @@ document.addEventListener('DOMContentLoaded', function () {
     socket.onclose = function (e) {
         console.error('Chat socket closed unexpectedly');
     };
+    messageInput.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault(); // Prevent newline insertion
 
+            const message = messageInput.value;
+            if (message && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    'message': message
+                }));
+                messageInput.value = ''; // Clear the input after sending
+            }
+        }
+    });
     // Handle sending messages and files
     sendMessageButton.addEventListener('click', function () {
         const message = messageInput.value;
-
         if (message && socket.readyState === WebSocket.OPEN) {
             // Send text message
             socket.send(JSON.stringify({
@@ -83,20 +87,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // Handle file upload
             reader.onload = function (e) {
-                const fileContent = e.target.result.split(',')[1]; // Base64 content
+                const arrayBuffer = e.target.result; // Binary content
 
-                // Send file data via WebSocket
-                socket.send(JSON.stringify({
-                    'file': {
-                        'name': file.name,
-                        'content': fileContent
-                    }
-                }));
+                // Create a JSON message with file name and content
+                const fileMessage = {
+                    'file_name': file.name,
+                    'file_content': arrayBuffer
+                };
+
+                // Send the JSON stringified message first
+                socket.send(JSON.stringify(fileMessage));
+
+                // Send the binary file content next
+                socket.send(arrayBuffer); // Send binary data directly
                 fileInput.value = ''; // Clear the file input after sending
             };
 
-            // Read the file as a data URL to get base64-encoded content
-            reader.readAsDataURL(file);
+            // Read the file as an ArrayBuffer
+            reader.readAsArrayBuffer(file);
         }
     });
 });

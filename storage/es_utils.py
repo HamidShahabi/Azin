@@ -125,3 +125,31 @@ class ElasticsearchFacade:
         except ApiError as e:
             error_logger.error(f"Failed to refresh index '{index_name}': {str(e)}")
             raise
+
+    def resolve_link(self, bucket_name, target_object_name, index_name):
+        """Resolve a metadata-based link to get the original object's key."""
+        try:
+            # Construct the s3_object_name in the pattern bucket_name/target_object_name
+            s3_object_name = f"{bucket_name}/{target_object_name}"
+
+            # Search for the file in Elasticsearch using the s3_object_name
+            query = {"query": {"term": {"s3_object_name": s3_object_name}}}
+            result = self.search(index_name, query)
+
+            if result['hits']['total']['value'] == 0:
+                error_logger.error(f"No document found for {s3_object_name} in Elasticsearch.")
+                return None
+
+            # Retrieve the original-key from the metadata
+            original_key = result['hits']['hits'][0]['_source']['metadata'].get('original-key')
+
+            if original_key:
+                audit_logger.info(
+                    f"Resolved link {target_object_name} to original object {original_key} in bucket {bucket_name}")
+                return original_key
+            else:
+                error_logger.error(f"No link metadata found for {target_object_name} in bucket {bucket_name}")
+                return None
+        except Exception as e:
+            error_logger.error(f"Failed to resolve link for '{target_object_name}' in bucket '{bucket_name}': {str(e)}")
+            raise
