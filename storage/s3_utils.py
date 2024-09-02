@@ -192,13 +192,17 @@ class S3Facade:
                 f"Failed to resolve link {target_object_name} in bucket {bucket_name}: {str(e)}")
             raise
 
-    def upload_object_body(self, object_name, body, bucket_name=None):
+    def upload_object_body(self, object_name, body=None, metadata=None):
         """Upload an object body to S3."""
         try:
             parts = object_name.split('/')
             bucket_name = parts[0]  # The first part is the bucket name
             file_name = parts[-1]  # The last part is the file name (object name)
-            self.s3_client.put_object(Bucket=bucket_name, Key=file_name, Body=body)
+            if metadata:
+                self.s3_client.put_object(Bucket=bucket_name, Key=file_name, Metadata=metadata)
+            else:
+                self.s3_client.put_object(Bucket=bucket_name, Key=file_name, Body=body)
+
             audit_logger.info(f"Uploaded object body to {bucket_name}/{object_name}")
             return f"{bucket_name}/{object_name}"
         except ClientError as e:
